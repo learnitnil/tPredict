@@ -12,6 +12,7 @@ To process data  - we use following process
 import json
 import requests
 import os
+from pandas import DataFrame
 
 abuDhabiBBox = '51.42,22.63;56.02,25.45'
 hereFlowBaseUrl = 'https://traffic.api.here.com/traffic/6.1/flow.json'
@@ -55,7 +56,8 @@ def processFile(fileName) :
                 # print("number of flow elements are {}".format(len(fi['FI'])))
                 for flowElement in fi['FI'] :
                     pc = flowElement['TMC']['PC'] #unique code for each road segment
-                    roadCode = '{0}-{1}-{2}'.format(extendedCountryCode,tableId,pc)
+                    qd = flowElement['TMC']['QD'] #Queuing direction
+                    roadCode = '{0}_{1}_{2}_{3}'.format(extendedCountryCode,tableId,pc,qd)
                     # print(roadCode)
                     resultDict[roadCode] = {
                         'FF' : flowElement['CF'][0]['FF'], # free flow
@@ -64,8 +66,49 @@ def processFile(fileName) :
                     }
     print("processing for {0} is completed. file contains {1} road segements ".format(fileName,len(resultDict)))
 
+def processFileForLookUpData(fileName) :
+    with open(fileName) as f :
+        data = json.load(f)
+    resultDict = []
+    for rws in data['RWS'] :
+        tableId = rws['TABLE_ID']
+        extendedCountryCode = rws['EXTENDED_COUNTRY_CODE']
+        for fis in rws['RW'] :
+            for fi in fis['FIS'] :
+                # print(fi['TMC']['PC'])
+                # print("number of flow elements are {}".format(len(fi['FI'])))
+                for flowElement in fi['FI'] :
+                    pc = flowElement['TMC']['PC'] #unique code for each road segment
+                    qd = flowElement['TMC']['QD'] #Queuing direction
+                    roadCode = '{0}_{1}_{2}_{3}'.format(extendedCountryCode,tableId,pc,qd)
+                    # print(roadCode)
+                    shpData = ''
+                    # if we have more shp elements - make it an single list of latlongs
+                    if len(flowElement['SHP']) > 1 :
+                        for shp in flowElement['SHP'] :
+                            shpData = shpData + str(shp['value'][0])
+                    else :
+                        shpData = str(flowElement['SHP'][0]['value'][0])
+                    # print(shpData)
+                    lookUpData = { 'rc' : roadCode, 'shp' : shpData}
+                    resultDict.append(lookUpData)
+    print("processing for {0} is completed. file contains {1} road segements ".format(fileName,len(resultDict)))
+    table = {
+        'roadCode' : [item['rc'] for item in resultDict],
+        'shpValue' : [item['shp'] for item in resultDict]
+    }
+    df = DataFrame(table,columns= ['roadCode', 'shpValue'])
+    fileToWrite = os.path.join('results','lookUpData.csv')
+    df.to_csv(fileToWrite)
+    print('lookupData is written to {0}'.format(fileToWrite))
+
+# process the files and save data
+# create a lookUpData.csv file if it is not present
 def processAllData():
     for fileName in os.listdir('data') :
+        #check for lookUpData.csv
+        if os.path.exists(os.path.join('results','lookUpData.csv')) == False:
+            processFileForLookUpData(os.path.join('data',fileName))
         processFile(os.path.join('data',fileName))
 
 if __name__ == "__main__":
@@ -76,7 +119,7 @@ if __name__ == "__main__":
         'app_code' : appCode,
         'responseattributes' : 'shape' #include the shape information - to get lat longs
     }
-    getDataAndSaveItToDesk(params)
+    # getDataAndSaveItToDesk(params)
     processAllData()
     # processFile('data/2019-09-16T11:09:22.000+0000.json')
 
