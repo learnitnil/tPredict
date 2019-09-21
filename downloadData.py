@@ -13,6 +13,8 @@ import json
 import requests
 import os
 from pandas import DataFrame
+import pandas as pd
+import time
 
 abuDhabiBBox = '51.42,22.63;56.02,25.45'
 hereFlowBaseUrl = 'https://traffic.api.here.com/traffic/6.1/flow.json'
@@ -59,12 +61,15 @@ def processFile(fileName) :
                     qd = flowElement['TMC']['QD'] #Queuing direction
                     roadCode = '{0}_{1}_{2}_{3}'.format(extendedCountryCode,tableId,pc,qd)
                     # print(roadCode)
+
                     resultDict[roadCode] = {
                         'FF' : flowElement['CF'][0]['FF'], # free flow
                         'JF' : flowElement['CF'][0]['JF'], # jam factor
                         'SP' : flowElement['CF'][0]['SP'] # speed capped by speed limit
                     }
+                    resultDict['time'] = data['CREATED_TIMESTAMP']
     print("processing for {0} is completed. file contains {1} road segements ".format(fileName,len(resultDict)))
+    return resultDict
 
 def processFileForLookUpData(fileName) :
     with open(fileName) as f :
@@ -105,11 +110,50 @@ def processFileForLookUpData(fileName) :
 # process the files and save data
 # create a lookUpData.csv file if it is not present
 def processAllData():
+    finalData = []
+    roadCodesForFinalData = tuple(pd.read_csv(os.path.join('results','lookUpData.csv'))['roadCode'])
     for fileName in os.listdir('data') :
         #check for lookUpData.csv
         if os.path.exists(os.path.join('results','lookUpData.csv')) == False:
-            processFileForLookUpData(os.path.join('data',fileName))
-        processFile(os.path.join('data',fileName))
+            processFileForLookUpData(os.path.join('data',fileName))                  
+
+        #get the roads from lookupdata and use that order to store the results
+        
+        data = processFile(os.path.join('data',fileName))
+        #store with each data according to time#
+        # data format  
+        # date | rc_1 | rc_2 ....... |rc_n
+        # finalData consist of all the data with respect to time - data consist of list of tuples 
+        #                                               [(dataFor Rc1),(dataFor Rc2) .... (dataFor Rcn)]    
+        finalData.append( {
+            'time' : data['time'].split('.')[0], #removing data after '.' in time
+            'data' : [ (data[rc]['FF'],data[rc]['JF'],data[rc]['SP']) for rc in roadCodesForFinalData ]
+        })
+    
+    #sort dictionary based on timestamp -> so it is easy to process for ML 
+    finalData.sort(key=lambda x:time.mktime(time.strptime(x['time'], '%Y-%m-%dT%H:%M:%S'))) 
+    # print(finalData)
+    
+    #seperate data into each roadCode - so it is easy for us to read and process seperate#
+    # now data will be in following format 
+    # date | rc_1 | rc_2 ....... |rc_n
+    # so we can write using pandas and extract
+    dataToWrite = {
+        'time' : list()
+    }
+    for item in finalData :
+        dataToWrite['time'].append(item['time']) 
+        for roadCodeIndex in range(len(roadCodesForFinalData)) :
+            if dataToWrite.get(roadCodesForFinalData[roadCodeIndex],False) == False :
+                #if key doesn't exist , create it - if exists add the data to list
+                dataToWrite[roadCodesForFinalData[roadCodeIndex]] = list()
+                #convert the floats into str and join them
+            dataToWrite[roadCodesForFinalData[roadCodeIndex]].append(','.join([str(i) for i in item['data'][roadCodeIndex]])) 
+    # print(dataToWrite)
+    df = DataFrame(dataToWrite)
+    fileToWrite = os.path.join('results','processedData.csv')
+    df.to_csv(fileToWrite)
+    print('processed data is written into {0}'.format(fileToWrite))
 
 if __name__ == "__main__":
     appId,appCode = getCredentials()
@@ -119,7 +163,7 @@ if __name__ == "__main__":
         'app_code' : appCode,
         'responseattributes' : 'shape' #include the shape information - to get lat longs
     }
-    # getDataAndSaveItToDesk(params)
+    getDataAndSaveItToDesk(params)
     processAllData()
     # processFile('data/2019-09-16T11:09:22.000+0000.json')
 
