@@ -21,13 +21,14 @@ hereFlowBaseUrl = 'https://traffic.api.here.com/traffic/6.1/flow.json'
 
 #this function is used to load the here credetials from external json file
 def getCredentials():
-    with open('credentials.json')  as f :
+    with open('../credentials.json')  as f :
         data = json.load(f)
     return [data['id'],data['code']]
 
 def saveItToDesk(data):
     data = json.loads(data)
-    fileName = os.path.join('data',data["CREATED_TIMESTAMP"]+'.json')
+    # fileName = os.path.join('data',data["CREATED_TIMESTAMP"]+'.json')
+    fileName = 'data.json'
     with open(fileName ,'w') as f :
         json.dump(data,f)
 
@@ -194,6 +195,20 @@ def processAllData():
         df.to_csv(fileToWrite)
     else: # else it exists so append without writing the header
         df.to_csv(fileToWrite, mode='a', header=False)
+
+
+def restAPIData() :
+    appId,appCode = getCredentials()
+    params = {
+        'bbox' : abuDhabiBBox,
+        'app_id' : appId,
+        'app_code' : appCode,
+        'responseattributes' : 'shape' #include the shape information - to get lat longs
+    }
+    getDataAndSaveItToDesk(params)
+    data = processFileForAPI('data.json')
+    return data
+
 
 if __name__ == "__main__":
     appId,appCode = getCredentials()
